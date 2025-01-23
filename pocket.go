@@ -24,8 +24,31 @@ type Pocket struct {
 	body        string
 }
 
-type pocketClient struct {
-	body string
+type PocketItem struct {
+	ID                     string            `json:"item_id"`
+	Favorite               string            `json:"favorite"`
+	Status                 string            `json:"status"`
+	TimeAdded              string            `json:"time_added"`
+	TimeUpdated            string            `json:"time_updated"`
+	TimeRead               string            `json:"time_read"`
+	TimeFavorited          string            `json:"time_favorited"`
+	SortID                 int               `json:"sort_id"`
+	Tags                   map[string]string `json:"tags"`
+	TopImageURL            string            `json:"top_image_url"`
+	ResolvedID             string            `json:"resolved_id"`
+	GivenURL               string            `json:"given_url"`
+	GivenTitle             string            `json:"given_title"`
+	ResolvedTitle          string            `json:"resolved_title"`
+	ResolvedURL            string            `json:"resolved_url"`
+	Excerpt                string            `json:"excerpt"`
+	IsArticle              string            `json:"is_article"`
+	IsIndex                string            `json:"is_index"`
+	HasVideo               string            `json:"has_video"`
+	HasImage               string            `json:"has_image"`
+	WordCount              string            `json:"word_count"`
+	Lang                   string            `json:"lang"`
+	TimeToRead             int               `json:"time_to_read"`
+	ListenDurationEstimate int               `json:"listen_duration_estimate"`
 }
 
 const (
@@ -59,32 +82,30 @@ func New(consumerKey, accessToken string) (*Pocket, error) {
 	return p, nil
 }
 
-func (p *Pocket) Retrive(since int64) ([]string, int64, error) {
+func (p *Pocket) Retrive(since int64) ([]PocketItem, int64, error) {
 	var (
 		newSince int64
-		result   []string
+		result   []PocketItem
 		err      error
 	)
 
 	offset := pocketDefaultOffset
 	count := pocketCount
 	for count > 0 {
-		var links []string
-		links, newSince, err = p.request(since, offset)
+		var items []PocketItem
+		items, newSince, err = p.request(since, offset)
 		if err != nil {
 			return nil, since, err
 		}
-		count = len(links)
-		if count > 0 {
-			result = append(result, links...)
-		}
+		count = len(items)
+		result = append(result, items...)
 		offset += pocketCount
 	}
 
 	return result, newSince, nil
 }
 
-func (p *Pocket) request(since int64, offset int) ([]string, int64, error) {
+func (p *Pocket) request(since int64, offset int) ([]PocketItem, int64, error) {
 	request, _ := http.NewRequest(http.MethodPost, endpoint, nil)
 	request.Header.Add("Content-Type", "application/json")
 	request.Header.Add("X-Accept", "application/json")
@@ -95,16 +116,16 @@ func (p *Pocket) request(since int64, offset int) ([]string, int64, error) {
 	request.Body = io.NopCloser(strings.NewReader(body))
 	response, err := client.Request(request)
 	if err != nil {
-		return nil, 0, err
+		return nil, since, err
 	}
 
 	if response.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("got response %d; X-Error=[%s]", response.StatusCode, response.Header.Get("X-Error"))
+		return nil, since, fmt.Errorf("got response %d; X-Error=[%s]", response.StatusCode, response.Header.Get("X-Error"))
 	}
 
 	bodyString := response.Body
 	if e := gjson.Get(bodyString, "error").String(); e != "" {
-		return nil, 0, ErrSomethingWentWrong
+		return nil, since, ErrSomethingWentWrong
 	}
 
 	// Update since
@@ -115,16 +136,15 @@ func (p *Pocket) request(since int64, offset int) ([]string, int64, error) {
 	}
 
 	list := gjson.Get(bodyString, "list").Map()
-	var result []string
+	var result []PocketItem
 	for k := range list {
 		value := list[k].String()
-		u := gjson.Get(value, "resolved_url")
-		if u.String() == "" {
-			u = gjson.Get(value, "given_url")
+
+		var pp PocketItem
+		if err := json.Unmarshal([]byte(value), &pp); err != nil {
+			return nil, since, err
 		}
-		if u.Exists() {
-			result = append(result, u.String())
-		}
+		result = append(result, pp)
 	}
 
 	return result, newSince, nil
